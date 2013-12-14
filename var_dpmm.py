@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse as sp
-from scipy.special import psi
+from scipy.special import psi, gammaln
 import sys
 
 ap_data = '../ap/ap.dat'
@@ -32,7 +32,15 @@ def logsumexp(a, axis=None):
     except:
         return a_max + np.log(np.sum(np.exp(a - a_max[:,np.newaxis]), axis=axis))
 
-def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100):
+def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None):
+    '''
+    runs variational inference on a DP mixture model where each
+    mixture component is a multinomial distribution.
+
+    X: observed data, (N,M) matrix, can be sparse
+    alpha: concentration parameter
+    base_dirichlet: base measure (Dirichlet (1,M) in this case)
+    '''
     N, M = X.shape
 
     # variational multinomial parameters for z_n
@@ -45,6 +53,8 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100):
     # variational dirichlet parameters for \eta_t
     tau = np.matrix(np.zeros((T,M)))
 
+    ll = []
+    ll_test = []
     for it in range(n_iter):
         print it
         gamma1 = 1. + np.sum(phi[:T-1,:], axis=1)
@@ -64,9 +74,55 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100):
         S = S - logsumexp(S, axis=0)
         phi = np.exp(S)
 
-        # print_top_words_for_topics(top_topics_of_document(0, phi, n_topics=5),tau)
+        print_top_words_for_topics(top_topics_of_document(0, phi, n_topics=5),tau)
+        ll.append(log_likelihood(X, gamma1, gamma2, tau, phi,
+            alpha, base_dirichlet, lphi=S, eta=eta))
+        if Xtest is not None:
+            ll_test.append(log_likelihood(Xtest, gamma1, gamma2, tau, phi,
+                alpha, base_dirichlet, lphi=S, eta=eta))
 
-    return gamma1, gamma2, tau, phi
+    return gamma1, gamma2, tau, phi, ll, ll_test
+
+def log_likelihood(X, gamma1, gamma2, tau, phi, alpha, base_dirichlet, lphi=None, eta=None):
+    '''computes lower bound on log-likelihood'''
+    lV1 = psi(gamma1) - psi(gamma1 + gamma2)  # E_q[log V_t]
+    lV2 = psi(gamma2) - psi(gamma1 + gamma2)  # E_q[log (1-V_t)]
+    lambda1 = np.matrix(base_dirichlet).T
+    phi_cum = np.cumsum(phi[:0:-1,:], axis=0)[::-1,:]
+
+    T = phi.shape[0]
+
+    if eta is None:
+        eta = psi(tau) - psi(np.sum(tau, axis=1))
+    if lphi is None:
+        lphi = np.log(phi)
+
+    # E_q[log p(V|alpha)]
+    ll = np.sum((alpha - 1) * lV2) - \
+            (T-1) * (gammaln(alpha) - gammaln(1.+alpha))
+
+    # E_q[log p(eta|lambda)]
+    ll += np.sum(eta * (lambda1 - 1)) - \
+            T * (np.sum(gammaln(lambda1)) - gammaln(np.sum(lambda1)))
+
+    # \sum_n E_q[log p(Z_n|V)]
+    ll += np.sum(np.multiply(phi[:-1,:], lV1) + np.multiply(phi_cum, lV2))
+
+    # \sum_n E_q[log p(x_n | Z_n)]
+    ll += np.sum(np.multiply(phi.T, X * eta.T))
+
+    # - E_q[log q(V)]
+    ll -= ((gamma1 - 1).T * lV1 + (gamma2 - 1).T * lV2).item() - \
+            np.sum(gammaln(gamma1) + gammaln(gamma2) - gammaln(gamma1 + gamma2))
+
+    # - E_q[log q(eta)]
+    ll -= np.sum(np.multiply(tau - 1, eta)) - \
+            np.sum(np.sum(gammaln(tau), axis=1) - gammaln(np.sum(tau, axis=1)))
+
+    # - E_q[log q(z)]
+    ll -= np.sum(np.nan_to_num(np.multiply(phi, np.log(phi))))
+
+    return ll
 
 def print_top_words_for_topics(topics, tau, n_words=10):
     voc = np.array(open(ap_vocab).read().strip().split('\n'))
@@ -86,6 +142,7 @@ def top_topics_of_document(n, phi, n_topics=None):
 
 if __name__ == '__main__':
     X = load_data(ap_data, ap_vocab)
+    X = X.tocsr()
     N, M = X.shape
 
     alpha = 1
