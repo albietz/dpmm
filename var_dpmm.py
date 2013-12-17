@@ -135,11 +135,13 @@ def print_top_words_for_topics(topics, tau, counts=None, n_words=10):
     if isinstance(topics, tuple):
         for topic, prob in zip(*topics):
             idx = np.argsort(tau[topic,:].A1)[::-1]
-            print '{} ({}): {}'.format(topic, float(prob), ', '.join(voc[idx[:n_words]]))
-    elif counts:
+            print '{} ({}): {}'.format(topic, float(prob),
+                    ', '.join(voc[idx[:n_words]]))
+    elif counts is not None:
         for topic, count in zip(topics, counts):
             idx = np.argsort(tau[topic,:].A1)[::-1]
-            print '{} ({}): {}'.format(topic, count, ', '.join(voc[idx[:n_words]]))
+            print '{} ({}): {}'.format(topic, count,
+                    ', '.join(voc[idx[:n_words]]))
     else:
         for topic in topics:
             idx = np.argsort(tau[topic,:].A1)[::-1]
@@ -156,4 +158,12 @@ if __name__ == '__main__':
     alpha = 1
     base_dirichlet = np.ones(M)
 
-    g1, g2, tau, phi = var_dpmm.var_dpmm_multinomial(X, alpha, base_dirichlet, T=20, n_iter=50)
+    g1, g2, tau, phi, ll, _ = \
+            var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=50)
+
+    # print topics/clusters, ordered by decreasing number of assigned documents
+    assigned_topics = np.argmax(phi, axis=0).A1
+    counts = np.bincount(assigned_topics)
+    idx = np.argsort(counts)[::-1]
+    print
+    print_top_words_for_topics(idx, tau, counts=counts[idx])
