@@ -45,7 +45,8 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None)
     N, M = X.shape
 
     # variational multinomial parameters for z_n
-    phi = 1./T * np.matrix(np.ones((T,N)))
+    phi = np.matrix(np.random.uniform(size=(T,N)))
+    phi = np.divide(phi, np.sum(phi, axis=0))
 
     # variational beta parameters for V_t
     gamma1 = np.matrix(np.zeros((T-1,1)))
