@@ -23,6 +23,7 @@ def load_data(ap_data, ap_vocab):
         
         X[i,idxs] = vals
 
+    X = X.tocsr()
     return X
 
 def logsumexp(a, axis=None):
@@ -56,7 +57,7 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None)
     ll = []
     ll_test = []
     for it in range(n_iter):
-        print it
+        sys.stdout.write('.'); sys.stdout.flush()
         gamma1 = 1. + np.sum(phi[:T-1,:], axis=1)
         phi_cum = np.cumsum(phi[:0:-1,:], axis=0)[::-1,:]
         gamma2 = alpha + np.sum(phi_cum, axis=1)
@@ -74,28 +75,31 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None)
         S = S - logsumexp(S, axis=0)
         phi = np.exp(S)
 
-        print_top_words_for_topics(top_topics_of_document(0, phi, n_topics=5),tau)
-        ll.append(log_likelihood(X, gamma1, gamma2, tau, phi,
+        ll.append(log_likelihood(X, gamma1, gamma2, tau,
             alpha, base_dirichlet, lphi=S, eta=eta))
         if Xtest is not None:
-            ll_test.append(log_likelihood(Xtest, gamma1, gamma2, tau, phi,
-                alpha, base_dirichlet, lphi=S, eta=eta))
+            ll_test.append(log_likelihood(Xtest, gamma1, gamma2, tau,
+                alpha, base_dirichlet, eta=eta))
 
     return gamma1, gamma2, tau, phi, ll, ll_test
 
-def log_likelihood(X, gamma1, gamma2, tau, phi, alpha, base_dirichlet, lphi=None, eta=None):
+def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta=None):
     '''computes lower bound on log-likelihood'''
     lV1 = psi(gamma1) - psi(gamma1 + gamma2)  # E_q[log V_t]
+    lV11 = np.vstack((lV1, 0.))
     lV2 = psi(gamma2) - psi(gamma1 + gamma2)  # E_q[log (1-V_t)]
+    lV22 = np.cumsum(np.vstack((0., lV2)), axis=0)  # \sum_{i=1}^{t-1} E_q[log (1-V_i)]
     lambda1 = np.matrix(base_dirichlet).T
-    phi_cum = np.cumsum(phi[:0:-1,:], axis=0)[::-1,:]
 
-    T = phi.shape[0]
+    T = tau.shape[0]
 
     if eta is None:
         eta = psi(tau) - psi(np.sum(tau, axis=1))
     if lphi is None:
-        lphi = np.log(phi)
+        lphi = lV11 + lV22 + eta * X.T
+        lphi = lphi - logsumexp(lphi, axis=0)
+    phi = np.exp(lphi)
+    phi_cum = np.cumsum(phi[:0:-1,:], axis=0)[::-1,:]
 
     # E_q[log p(V|alpha)]
     ll = np.sum((alpha - 1) * lV2) - \
@@ -142,10 +146,9 @@ def top_topics_of_document(n, phi, n_topics=None):
 
 if __name__ == '__main__':
     X = load_data(ap_data, ap_vocab)
-    X = X.tocsr()
     N, M = X.shape
 
     alpha = 1
-    base_dirichlet = 0.1 * np.ones(M)
+    base_dirichlet = np.ones(M)
 
     g1, g2, tau, phi = var_dpmm.var_dpmm_multinomial(X, alpha, base_dirichlet, T=20, n_iter=50)
