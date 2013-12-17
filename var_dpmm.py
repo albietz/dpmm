@@ -129,13 +129,17 @@ def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta
 
     return ll
 
-def print_top_words_for_topics(topics, tau, n_words=10):
+def print_top_words_for_topics(topics, tau, counts=None, n_words=10):
     voc = np.array(open(ap_vocab).read().strip().split('\n'))
 
     if isinstance(topics, tuple):
         for topic, prob in zip(*topics):
             idx = np.argsort(tau[topic,:].A1)[::-1]
             print '{} ({}): {}'.format(topic, float(prob), ', '.join(voc[idx[:n_words]]))
+    elif counts:
+        for topic, count in zip(topics, counts):
+            idx = np.argsort(tau[topic,:].A1)[::-1]
+            print '{} ({}): {}'.format(topic, count, ', '.join(voc[idx[:n_words]]))
     else:
         for topic in topics:
             idx = np.argsort(tau[topic,:].A1)[::-1]
