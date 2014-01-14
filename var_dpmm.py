@@ -64,7 +64,7 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None)
     tau = np.matrix(np.zeros((T,M)))
 
     ll = []
-    ll_test = []
+    held_out = []
     for it in range(n_iter):
         sys.stdout.write('.'); sys.stdout.flush()
         gamma1 = 1. + np.sum(phi[:T-1,:], axis=1)
@@ -85,15 +85,15 @@ def var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=100, Xtest=None)
         phi = np.exp(S)
 
         ll.append(log_likelihood(X, gamma1, gamma2, tau,
-            alpha, base_dirichlet, lphi=S, eta=eta))
+            alpha, base_dirichlet, phi=phi, eta=eta))
         if Xtest is not None:
-            ll_test.append(log_likelihood(Xtest, gamma1, gamma2, tau,
+            held_out.append(mean_log_predictive(Xtest, gamma1, gamma2, tau,
                 alpha, base_dirichlet, eta=eta))
 
-    return gamma1, gamma2, tau, phi, ll, ll_test
+    return gamma1, gamma2, tau, phi, ll, held_out
 
-def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta=None):
-    '''computes lower bound on log-likelihood'''
+def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, phi, eta=None):
+    '''computes lower bound on log marginal likelihood'''
     lV1 = psi(gamma1) - psi(gamma1 + gamma2)  # E_q[log V_t]
     lV11 = np.vstack((lV1, 0.))
     lV2 = psi(gamma2) - psi(gamma1 + gamma2)  # E_q[log (1-V_t)]
@@ -104,10 +104,7 @@ def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta
 
     if eta is None:
         eta = psi(tau) - psi(np.sum(tau, axis=1))
-    if lphi is None:
-        lphi = lV11 + lV22 + eta * X.T
-        lphi = lphi - logsumexp(lphi, axis=0)
-    phi = np.exp(lphi)
+
     phi_cum = np.cumsum(phi[:0:-1,:], axis=0)[::-1,:]
 
     # E_q[log p(V|alpha)]
@@ -136,6 +133,24 @@ def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta
     ll -= np.sum(np.nan_to_num(np.multiply(phi, np.log(phi))))
 
     return ll
+
+def mean_log_predictive(X, gamma1, gamma2, tau, alpha, base_dirichlet, eta=None):
+    '''Computes the mean of the log predictive distribution over sample X,
+    typically held out data.'''
+    lV1 = psi(gamma1) - psi(gamma1 + gamma2)  # E_q[log V_t]
+    lV11 = np.vstack((lV1, 0.))
+    lV2 = psi(gamma2) - psi(gamma1 + gamma2)  # E_q[log (1-V_t)]
+    lV22 = np.cumsum(np.vstack((0., lV2)), axis=0)  # \sum_{i=1}^{t-1} E_q[log (1-V_i)]
+
+    if eta is None:
+        eta = psi(tau) - psi(np.sum(tau, axis=1))
+
+    # E_q[log pi(V)]
+    lPi = lV11 + lV22
+
+    # p(x_N|x) = \sum_t E_q[pi_t(V)] E_q[p(x_N|eta_t)]
+    lPred = logsumexp(lPi.T + X * eta.T, axis=1)
+    return lPred.mean()
 
 def print_top_words_for_topics(topics, tau, counts=None, n_words=10):
     voc = np.array(open(vocab_file).read().strip().split('\n'))
@@ -175,8 +190,7 @@ if __name__ == '__main__':
     alpha = 1
     base_dirichlet = np.ones(M)
 
-    g1, g2, tau, phi, ll, _ = \
-            var_dpmm_multinomial(X, alpha, base_dirichlet, T=50, n_iter=50)
+    g1, g2, tau, phi, ll, held_out = var_dpmm_multinomial(X[:1000,:], alpha, base_dirichlet, T=50, n_iter=50, Xtest=X[1000:,:])
 
     # print topics/clusters, ordered by decreasing number of assigned documents
     assigned_topics = np.argmax(phi, axis=0).A1
