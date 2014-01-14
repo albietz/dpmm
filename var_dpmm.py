@@ -3,10 +3,7 @@ import scipy.sparse as sp
 from scipy.special import psi, gammaln
 import sys
 
-ap_data = '../ap/ap.dat'
-ap_vocab = '../ap/vocab.txt'
-
-def load_data(ap_data, ap_vocab):
+def load_ap_data(ap_data, ap_vocab):
     n = len(open(ap_data).readlines())
     m = len(open(ap_vocab).readlines())
 
@@ -24,6 +21,17 @@ def load_data(ap_data, ap_vocab):
         X[i,idxs] = vals
 
     X = X.tocsr()
+    return X
+
+def load_bow_data(bow_data):
+    f = open(bow_data)
+    n = int(f.readline().strip())
+    m = int(f.readline().strip())
+    _ = f.readline()
+
+    d = np.array([map(int, line.split()) for line in f])
+
+    X = sp.csr_matrix((d[:,2], d[:,:2].T - 1), shape=(n,m))
     return X
 
 def logsumexp(a, axis=None):
@@ -130,7 +138,7 @@ def log_likelihood(X, gamma1, gamma2, tau, alpha, base_dirichlet, lphi=None, eta
     return ll
 
 def print_top_words_for_topics(topics, tau, counts=None, n_words=10):
-    voc = np.array(open(ap_vocab).read().strip().split('\n'))
+    voc = np.array(open(vocab_file).read().strip().split('\n'))
 
     if isinstance(topics, tuple):
         for topic, prob in zip(*topics):
@@ -152,8 +160,17 @@ def top_topics_of_document(n, phi, n_topics=None):
     return idx[:n_topics], phi[idx[:n_topics],n]
 
 if __name__ == '__main__':
-    X = load_data(ap_data, ap_vocab)
+    # load AP data - http://www.cs.princeton.edu/~blei/lda-c/ap.tgz
+    data_file = '../ap/ap.dat'
+    vocab_file = '../ap/vocab.txt'
+    X = load_ap_data(data_file, vocab_file)
+
+    # load BOW data - http://archive.ics.uci.edu/ml/machine-learning-databases/bag-of-words/
+    # data_file = '../bow/docword.nips.txt'
+    # vocab_file = '../bow/vocab.nips.txt'
+    # X = load_bow_data(data_file)
     N, M = X.shape
+    print 'Data loaded: {} documents, {} words in vocabulary'.format(N, M)
 
     alpha = 1
     base_dirichlet = np.ones(M)
